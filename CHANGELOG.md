@@ -1,5 +1,9 @@
 ## Current
 
+concurrent-ruby:
+
+* Add `Concurrent::StampedLock`, a read/write lock supporting lock-free optimistic read stamps with validation and non-blocking conversion of a valid stamp to a write lock.
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:
