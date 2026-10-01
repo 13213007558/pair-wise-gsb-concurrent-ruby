@@ -330,7 +330,52 @@ module Concurrent
         AnyResolvedEventPromise.new_blocked_by(futures_and_or_events, default_executor).event
       end
 
-      # TODO consider adding first(count, *futures)
+      # @!macro promises.shortcut.on
+      # @return [Future]
+      def quorum_futures(threshold, *futures_and_or_events)
+        quorum_futures_on default_executor, threshold, *futures_and_or_events
+      end
+
+      alias_method :quorum, :quorum_futures
+
+      # Creates a new future which is fulfilled once +threshold+ of the
+      # +futures_and_or_events+ are fulfilled. It sits between {zip_futures} which
+      # waits for all of them and {any_fulfilled_future} which fulfills on the first one.
+      #
+      # Its value is an array of +[index, value]+ pairs of the fulfilled futures in their
+      # fulfillment order, where +index+ is the position of the future in
+      # +futures_and_or_events+.
+      #
+      # It rejects as soon as the still pending futures can no longer reach the
+      # +threshold+, without waiting for them. Its reason is then an array of the
+      # rejection reasons aligned with the +futures_and_or_events+ positions,
+      # +nil+ on positions which did not reject.
+      #
+      # Behavior for edge cases:
+      # - Each position counts on its own, a future passed in multiple times
+      #   contributes one success or failure per position.
+      # - A zero +threshold+ is fulfilled immediately with an empty array,
+      #   not waiting for any of the futures.
+      # - Empty +futures_and_or_events+ therefore only accept a zero +threshold+.
+      # - A +threshold+ which is not a non-negative Integer, or which is bigger than
+      #   the number of +futures_and_or_events+, raises an +ArgumentError+ since it
+      #   could never be reached.
+      #
+      # It never cancels the remaining futures, they keep running and may still be
+      # used by the caller, their later results are simply ignored. The result is
+      # published exactly once, even when the last needed fulfillment and a rejection
+      # are resolved concurrently.
+      #
+      # @!macro promises.event-conversion
+      #
+      # @!macro promises.param.default_executor
+      # @param [Integer] threshold how many fulfilled futures are required to fulfill
+      # @param [AbstractEventFuture] futures_and_or_events
+      # @return [Future]
+      def quorum_futures_on(default_executor, threshold, *futures_and_or_events)
+        QuorumFuturesPromise.new_blocked_by(futures_and_or_events, default_executor, threshold).future
+      end
+
       # TODO consider adding zip_by(slice, *futures) processing futures in slices
       # TODO or rather a generic aggregator taking a function
     end
@@ -2095,6 +2140,60 @@ module Concurrent
         (event_or_future.is_a?(Event) ? event_or_future.resolved? : event_or_future.fulfilled?) ||
             # inlined super from BlockedPromise
             countdown.zero?
+      end
+    end
+
+    class QuorumFuturesPromise < BlockedPromise
+
+      # The bookkeeping and the decision have to be atomic, otherwise a fulfillment
+      # and a rejection resolving concurrently could publish the result twice or
+      # publish a rejection after the quorum was already reached.
+      def on_blocker_resolution(future, index)
+        resolution = @Lock.synchronize do
+          internal_state = future.internal_state
+          if internal_state.fulfilled?
+            @Fulfilled += 1
+            @Successes.push [index, internal_state.value]
+          else
+            @Reasons[index] = internal_state.reason
+          end
+          @Pending -= 1
+
+          if @Fulfilled >= @Threshold
+            Fulfilled.new @Successes.dup
+          elsif @Fulfilled + @Pending < @Threshold
+            Rejected.new @Reasons.dup
+          end
+        end
+
+        # never raises on reassignment, the result is published only once,
+        # resolutions of the remaining blockers are ignored afterwards
+        resolve_with resolution, false if resolution
+      end
+
+      private
+
+      def initialize(delayed, blockers_count, default_executor, threshold)
+        unless threshold.is_a?(Integer) && threshold >= 0
+          raise ArgumentError, "threshold has to be a non-negative Integer, got #{threshold.inspect}"
+        end
+        if threshold > blockers_count
+          raise ArgumentError,
+                "threshold #{threshold} can never be reached by #{blockers_count} futures_and_or_events"
+        end
+
+        super(delayed, blockers_count, Future.new(self, default_executor))
+        @Lock      = Mutex.new
+        @Threshold = threshold
+        @Fulfilled = 0
+        @Pending   = blockers_count
+        # [index, value] pairs in the order of fulfillment
+        @Successes = []
+        # reasons aligned with the original positions, nil where not rejected
+        @Reasons   = ::Array.new(blockers_count, nil)
+
+        # a zero threshold is already satisfied without waiting for any blocker
+        resolve_with Fulfilled.new([]) if threshold.zero?
       end
     end
 

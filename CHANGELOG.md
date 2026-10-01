@@ -1,5 +1,11 @@
 ## Current
 
+concurrent-ruby:
+
+* Add `Concurrent::Promises::FactoryMethods#quorum_futures` (aliased `#quorum`), a combinator
+  which fulfills once a given threshold of the input futures is fulfilled and rejects as soon
+  as the remaining futures can no longer reach the threshold.
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:

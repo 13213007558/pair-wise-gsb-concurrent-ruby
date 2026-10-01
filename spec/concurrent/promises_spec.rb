@@ -177,6 +177,115 @@ RSpec.describe 'Concurrent::Promises' do
     end
   end
 
+  describe '.quorum' do
+    it 'fulfills when the threshold is reached, keeping the original positions' do
+      f1 = resolvable_future
+      f2 = resolvable_future
+      f3 = resolvable_future
+
+      quorum = quorum_futures(2, f1, f2, f3)
+
+      f2.fulfill :b
+      expect(quorum).not_to be_resolved
+      f1.fulfill :a
+      expect(quorum.value!).to eq [[1, :b], [0, :a]]
+
+      # the remaining future is not cancelled and its late result is ignored
+      expect(f3).not_to be_resolved
+      f3.fulfill :c
+      expect(f3.value!).to eq :c
+      expect(quorum.value!).to eq [[1, :b], [0, :a]]
+    end
+
+    it 'rejects as soon as the remaining futures cannot reach the threshold' do
+      f1 = resolvable_future
+      f2 = resolvable_future
+      f3 = resolvable_future
+
+      quorum = quorum_futures(2, f1, f2, f3)
+
+      error1 = StandardError.new 'one'
+      f1.reject error1
+      expect(quorum).not_to be_resolved
+
+      error2 = RuntimeError.new 'two'
+      f2.reject error2
+      expect(quorum).to be_rejected
+      # keeps all the reasons aligned with the original positions
+      expect(quorum.reason).to eq [error1, error2, nil]
+
+      # the still pending future is left alone for the caller
+      expect(f3).not_to be_resolved
+      f3.fulfill :c
+      expect(f3.value!).to eq :c
+      expect(quorum).to be_rejected
+    end
+
+    it 'treats a resolved Event as a fulfilled Future' do
+      quorum = quorum_futures(1, resolved_event, resolvable_future)
+      expect(quorum.value!).to eq [[0, nil]]
+    end
+
+    it 'counts each position of a duplicated input separately' do
+      f      = resolvable_future
+      quorum = quorum_futures(2, f, f)
+      f.fulfill :value
+      expect(quorum.value!).to match_array [[0, :value], [1, :value]]
+    end
+
+    it 'fulfills a zero threshold immediately without waiting' do
+      f      = resolvable_future
+      quorum = quorum_futures(0, f)
+      expect(quorum.value!).to eq []
+      expect(f).not_to be_resolved
+
+      expect(quorum_futures(0).value!).to eq []
+    end
+
+    it 'raises on a threshold which can never be reached' do
+      expect { quorum_futures(1) }.to raise_error ArgumentError
+      expect { quorum_futures(3, resolvable_future, resolvable_future) }.to raise_error ArgumentError
+      expect { quorum_futures(-1, resolvable_future) }.to raise_error ArgumentError
+      expect { quorum_futures(1.5, resolvable_future) }.to raise_error ArgumentError
+    end
+
+    it 'counts callbacks registered after the inputs were already resolved' do
+      quorum = quorum_futures(2, fulfilled_future(:a), fulfilled_future(:b), resolvable_future)
+      expect(quorum.value!).to eq [[0, :a], [1, :b]]
+    end
+
+    it 'publishes the result only once when the last success and a failure race' do
+      100.times do
+        f1 = resolvable_future
+        f2 = resolvable_future
+        f3 = resolvable_future
+
+        quorum    = quorum_futures(2, f1, f2, f3)
+        published = Concurrent::AtomicFixnum.new(0)
+        chained   = quorum.then { published.increment }
+
+        f1.fulfill :a
+
+        latch = Concurrent::CountDownLatch.new(1)
+        t1    = Thread.new { latch.wait; f2.fulfill :b }
+        t2    = Thread.new { latch.wait; f3.reject StandardError.new }
+        latch.count_down
+        t1.join
+        t2.join
+
+        chained.wait
+        expect(published.value).to eq 1
+        expect(quorum).to be_resolved
+        # both outcomes are valid linearizations, but only one may be published
+        if quorum.fulfilled?
+          expect(quorum.value).to eq [[0, :a], [1, :b]]
+        else
+          expect(quorum.reason.size).to eq 3
+        end
+      end
+    end
+  end
+
   describe '.zip' do
     it 'waits for all results' do
       a = future { 1 }
