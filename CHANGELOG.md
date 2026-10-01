@@ -1,5 +1,11 @@
 ## Current
 
+concurrent-ruby-edge:
+
+* Add `Concurrent::TaskScope` — structured concurrency for blocks of work: spawn subtasks on a shared
+  executor, wait for all of them on block exit, cancel the rest cooperatively (via `Cancellation`
+  checkpoints) when one fails, and collect every failure reason in `TaskScope::TaskGroupError`.
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:
