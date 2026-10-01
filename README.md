@@ -170,6 +170,8 @@ Thread-safe variables:
     A synchronization object that allows one thread to wait on multiple other threads.
 *   [CyclicBarrier](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/CyclicBarrier.html)
     A synchronization aid that allows a set of threads to all wait for each other to reach a common barrier point.
+*   [Phaser](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/Phaser.html)
+    A reusable synchronization aid, similar to `CyclicBarrier` but supporting a variable number of parties which can register, arrive, wait and deregister across phases.
 *   [Event](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/Event.html) Old school
     kernel-style event.
 *   [ReadWriteLock](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/ReadWriteLock.html)
