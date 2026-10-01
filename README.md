@@ -93,6 +93,9 @@ We also have a [IRC (gitter)](https://gitter.im/ruby-concurrency/concurrent-ruby
     Like a Future scheduled for a specific future time.
 *   [TimerTask](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/TimerTask.html):
     A Thread that periodically wakes up to perform work at regular intervals.
+*   [OrderedParallelMap](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/OrderedParallelMap.html):
+    Maps a (possibly very long, one-shot) enumerable in parallel on an executor while
+    delivering results in input order, with a bounded window of elements in flight.
 *   [Promises](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/Promises.html):
     Unified implementation of futures and promises which combines features of previous `Future`,
     `Promise`, `IVar`, `Event`, `dataflow`, `Delay`, and (partially) `TimerTask` into a single 

@@ -1,5 +1,11 @@
 ## Current
 
+concurrent-ruby:
+
+*   Add `Concurrent::OrderedParallelMap` — maps a (possibly very long, one-shot) enumerable
+    in parallel on an executor, delivers results in input order, and bounds the number of
+    elements in flight (running + completed but not yet delivered) by a configurable window.
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:
