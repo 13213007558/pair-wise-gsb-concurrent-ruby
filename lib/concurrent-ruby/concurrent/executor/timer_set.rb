@@ -1,6 +1,7 @@
 require 'concurrent/scheduled_task'
 require 'concurrent/atomic/event'
 require 'concurrent/collection/non_concurrent_priority_queue'
+require 'concurrent/context'
 require 'concurrent/executor/executor_service'
 require 'concurrent/executor/single_thread_executor'
 require 'concurrent/errors'
@@ -48,10 +49,13 @@ module Concurrent
     def post(delay, *args, &task)
       raise ArgumentError.new('no block given') unless block_given?
       return false unless running?
+      # Capture on the submitting thread; the task only runs after the
+      # delay, on the timer thread or on the task executor.
+      bound_task = Context.wrap(&task)
       opts = { executor:  @task_executor,
                args:      args,
                timer_set: self }
-      task = ScheduledTask.execute(delay, opts, &task) # may raise exception
+      task = ScheduledTask.execute(delay, opts, &bound_task) # may raise exception
       task.unscheduled? ? false : task
     end
 

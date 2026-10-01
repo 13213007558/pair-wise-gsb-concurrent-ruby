@@ -1,4 +1,5 @@
 require 'delegate'
+require 'concurrent/context'
 require 'concurrent/executor/serial_executor_service'
 require 'concurrent/executor/serialized_execution'
 
@@ -22,7 +23,9 @@ module Concurrent
     def post(*args, &task)
       raise ArgumentError.new('no block given') unless block_given?
       return false unless running?
-      @serializer.post(@executor, *args, &task)
+      # Capture at submission time: stashed jobs run later on another thread
+      # where the submitting context would otherwise be unavailable.
+      @serializer.post(@executor, *args, &Context.propagate(task))
     end
   end
 end

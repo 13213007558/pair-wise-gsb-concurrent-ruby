@@ -40,11 +40,12 @@ module Concurrent
     def post(*args, &task)
       raise ArgumentError.new('no block given') unless block_given?
       return false unless running?
+      task = Context.propagate(task)
       @count.increment
       Thread.new(*args) do
         Thread.current.abort_on_exception = false
         begin
-          yield(*args)
+          task.call(*args)
         ensure
           @count.decrement
           @stopped.set if @running.false? && @count.value == 0

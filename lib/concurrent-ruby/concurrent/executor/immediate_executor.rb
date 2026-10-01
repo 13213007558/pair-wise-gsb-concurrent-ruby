@@ -1,4 +1,5 @@
 require 'concurrent/atomic/event'
+require 'concurrent/context'
 require 'concurrent/executor/abstract_executor_service'
 require 'concurrent/executor/serial_executor_service'
 
@@ -26,7 +27,9 @@ module Concurrent
     def post(*args, &task)
       raise ArgumentError.new('no block given') unless block_given?
       return false unless running?
-      task.call(*args)
+      # Run inline: still capture and restore so that a value set by the
+      # task cannot leak to the caller's subsequent work.
+      Context.propagate(task).call(*args)
       true
     end
 

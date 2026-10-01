@@ -1,5 +1,9 @@
 ## Current
 
+concurrent-ruby:
+
+* Added `Concurrent::ContextVar` and `Concurrent::Context`: explicitly registered per-thread variables which are captured when a task is submitted to an executor and restored on the executing thread after the task, without copying unrelated thread-local state. Promises continuations (`then`/`rescue`/`chain`) and the legacy `Future` opt in with a `context:` option.
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:

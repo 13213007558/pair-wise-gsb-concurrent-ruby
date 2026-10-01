@@ -3,6 +3,7 @@ require 'concurrent/atomic/atomic_boolean'
 require 'concurrent/atomic/atomic_fixnum'
 require 'concurrent/collection/lock_free_stack'
 require 'concurrent/configuration'
+require 'concurrent/context'
 require 'concurrent/errors'
 require 'concurrent/re_include'
 require 'concurrent/utility/monotonic_time'
@@ -103,8 +104,8 @@ module Concurrent
       # @yield [*args] to the task.
       # @!macro promise.param.task-future
       # @return [Future]
-      def future_on(default_executor, *args, &task)
-        ImmediateEventPromise.new(default_executor).future.then(*args, &task)
+      def future_on(default_executor, *args, context: true, &task)
+        ImmediateEventPromise.new(default_executor).future.then(*args, context: context, &task)
       end
 
       # Creates a resolved future with will be either fulfilled with the given value or rejected with
@@ -186,9 +187,12 @@ module Concurrent
       end
 
       # @!macro promises.shortcut.on
+      # @param [true, false, Concurrent::Context::Snapshot] context whether the
+      #   task should run with the {Concurrent::ContextVar context variables}
+      #   captured now. Defaults to `true` for a freshly started future.
       # @return [Future, Event]
-      def delay(*args, &task)
-        delay_on default_executor, *args, &task
+      def delay(*args, context: true, &task)
+        delay_on default_executor, *args, context: context, &task
       end
 
       # Creates a new event or future which is resolved only after it is touched,
@@ -204,15 +208,18 @@ module Concurrent
       # @overload delay_on(default_executor)
       #   If no task is provided, it returns an {Event}
       #   @return [Event]
-      def delay_on(default_executor, *args, &task)
+      def delay_on(default_executor, *args, context: true, &task)
         event = DelayPromise.new(default_executor).event
-        task ? event.chain(*args, &task) : event
+        task ? event.chain(*args, context: context, &task) : event
       end
 
       # @!macro promises.shortcut.on
+      # @param [true, false, Concurrent::Context::Snapshot] context whether the
+      #   task should run with the {Concurrent::ContextVar context variables}
+      #   captured now. Defaults to `true` for a freshly started future.
       # @return [Future, Event]
-      def schedule(intended_time, *args, &task)
-        schedule_on default_executor, intended_time, *args, &task
+      def schedule(intended_time, *args, context: true, &task)
+        schedule_on default_executor, intended_time, *args, context: context, &task
       end
 
       # Creates a new event or future which is resolved in intended_time.
@@ -230,9 +237,9 @@ module Concurrent
       # @overload schedule_on(default_executor, intended_time)
       #   If no task is provided, it returns an {Event}
       #   @return [Event]
-      def schedule_on(default_executor, intended_time, *args, &task)
+      def schedule_on(default_executor, intended_time, *args, context: true, &task)
         event = ScheduledPromise.new(default_executor, intended_time).event
-        task ? event.chain(*args, &task) : event
+        task ? event.chain(*args, context: context, &task) : event
       end
 
       # @!macro promises.shortcut.on
@@ -592,9 +599,12 @@ module Concurrent
       end
 
       # @!macro promises.shortcut.on
+      # @param [true, false, Concurrent::Context::Snapshot] context whether the
+      #   continuation should run with the {Concurrent::ContextVar context
+      #   variables} captured at registration time. Defaults to `false`.
       # @return [Future]
-      def chain(*args, &task)
-        chain_on @DefaultExecutor, *args, &task
+      def chain(*args, context: false, &task)
+        chain_on @DefaultExecutor, *args, context: context, &task
       end
 
       # Chains the task to be executed asynchronously on executor after it is resolved.
@@ -603,16 +613,20 @@ module Concurrent
       # @!macro promises.param.args
       # @return [Future]
       # @!macro promise.param.task-future
+      # @param [true, false, Concurrent::Context::Snapshot] context whether the
+      #   continuation should run with the {Concurrent::ContextVar context
+      #   variables} captured at registration time. Defaults to `false`.
       #
-      # @overload an_event.chain_on(executor, *args, &task)
+      # @overload an_event.chain_on(executor, *args, context: false, &task)
       #   @yield [*args] to the task.
-      # @overload a_future.chain_on(executor, *args, &task)
+      # @overload a_future.chain_on(executor, *args, context: false, &task)
       #   @yield [fulfilled, value, reason, *args] to the task.
       #   @yieldparam [true, false] fulfilled
       #   @yieldparam [Object] value
       #   @yieldparam [Object] reason
-      def chain_on(executor, *args, &task)
-        ChainPromise.new_blocked_by1(self, executor, executor, args, &task).future
+      def chain_on(executor, *args, context: false, &task)
+        snapshot = Context.snapshot_option(context) || Context.empty
+        ChainPromise.new_blocked_by1(self, executor, executor, args, snapshot, &task).future
       end
 
       # @return [String] Short string representation.
@@ -1036,9 +1050,14 @@ module Concurrent
       end
 
       # @!macro promises.shortcut.on
+      # @param [true, false, Concurrent::Context::Snapshot] context whether the
+      #   continuation should run with the {Concurrent::ContextVar context
+      #   variables} captured at registration time. Defaults to `false`, which
+      #   isolates the continuation. Pass `true` to capture the current
+      #   context, or an explicit {Concurrent::Context::Snapshot}.
       # @return [Future]
-      def then(*args, &task)
-        then_on @DefaultExecutor, *args, &task
+      def then(*args, context: false, &task)
+        then_on @DefaultExecutor, *args, context: context, &task
       end
 
       # Chains the task to be executed asynchronously on executor after it fulfills. Does not run
@@ -1047,16 +1066,24 @@ module Concurrent
       # @!macro promises.param.executor
       # @!macro promises.param.args
       # @!macro promise.param.task-future
+      # @param [true, false, Concurrent::Context::Snapshot] context whether the
+      #   continuation should run with the {Concurrent::ContextVar context
+      #   variables} captured now, when the continuation is registered, rather
+      #   than later on the resolving thread. Defaults to `false`.
       # @return [Future]
       # @yield [value, *args] to the task.
-      def then_on(executor, *args, &task)
-        ThenPromise.new_blocked_by1(self, executor, executor, args, &task).future
+      def then_on(executor, *args, context: false, &task)
+        snapshot = Context.snapshot_option(context) || Context.empty
+        ThenPromise.new_blocked_by1(self, executor, executor, args, snapshot, &task).future
       end
 
       # @!macro promises.shortcut.on
+      # @param [true, false, Concurrent::Context::Snapshot] context whether the
+      #   continuation should run with the {Concurrent::ContextVar context
+      #   variables} captured at registration time. Defaults to `false`.
       # @return [Future]
-      def rescue(*args, &task)
-        rescue_on @DefaultExecutor, *args, &task
+      def rescue(*args, context: false, &task)
+        rescue_on @DefaultExecutor, *args, context: context, &task
       end
 
       # Chains the task to be executed asynchronously on executor after it rejects. Does not run
@@ -1065,10 +1092,14 @@ module Concurrent
       # @!macro promises.param.executor
       # @!macro promises.param.args
       # @!macro promise.param.task-future
+      # @param [true, false, Concurrent::Context::Snapshot] context whether the
+      #   continuation should run with the {Concurrent::ContextVar context
+      #   variables} captured at registration time. Defaults to `false`.
       # @return [Future]
       # @yield [reason, *args] to the task.
-      def rescue_on(executor, *args, &task)
-        RescuePromise.new_blocked_by1(self, executor, executor, args, &task).future
+      def rescue_on(executor, *args, context: false, &task)
+        snapshot = Context.snapshot_option(context) || Context.empty
+        RescuePromise.new_blocked_by1(self, executor, executor, args, snapshot, &task).future
       end
 
       # @!macro promises.method.zip
@@ -1720,29 +1751,40 @@ module Concurrent
 
     # @abstract
     class BlockedTaskPromise < BlockedPromise
-      def initialize(delayed, blockers_count, default_executor, executor, args, &task)
+      def initialize(delayed, blockers_count, default_executor, executor, args, context, &task)
         raise ArgumentError, 'no block given' unless block_given?
         super delayed, 1, Future.new(self, default_executor)
         @Executor = executor
         @Task     = task
         @Args     = args
+        # A continuation runs later, on the thread which resolves its blocker,
+        # so the context has to be captured now at registration time. An empty
+        # snapshot isolates the continuation unless propagation is opted into.
+        @Context  = context || Context.empty
       end
 
       def executor
         @Executor
+      end
+
+      # Submits the continuation block to its executor with the captured
+      # context already bound, so the executor does not capture the resolving
+      # thread's context.
+      private def post_continuation(*args, &block)
+        Concurrent.executor(@Executor).post(*args, &@Context.bind(&block))
       end
     end
 
     class ThenPromise < BlockedTaskPromise
       private
 
-      def initialize(delayed, blockers_count, default_executor, executor, args, &task)
-        super delayed, blockers_count, default_executor, executor, args, &task
+      def initialize(delayed, blockers_count, default_executor, executor, args, context, &task)
+        super
       end
 
       def on_resolvable(resolved_future, index)
         if resolved_future.fulfilled?
-          Concurrent.executor(@Executor).post(resolved_future, @Args, @Task) do |future, args, task|
+          post_continuation(resolved_future, @Args, @Task) do |future, args, task|
             evaluate_to lambda { future.apply args, task }
           end
         else
@@ -1754,13 +1796,13 @@ module Concurrent
     class RescuePromise < BlockedTaskPromise
       private
 
-      def initialize(delayed, blockers_count, default_executor, executor, args, &task)
-        super delayed, blockers_count, default_executor, executor, args, &task
+      def initialize(delayed, blockers_count, default_executor, executor, args, context, &task)
+        super
       end
 
       def on_resolvable(resolved_future, index)
         if resolved_future.rejected?
-          Concurrent.executor(@Executor).post(resolved_future, @Args, @Task) do |future, args, task|
+          post_continuation(resolved_future, @Args, @Task) do |future, args, task|
             evaluate_to lambda { future.apply args, task }
           end
         else
@@ -1772,13 +1814,17 @@ module Concurrent
     class ChainPromise < BlockedTaskPromise
       private
 
+      def initialize(delayed, blockers_count, default_executor, executor, args, context, &task)
+        super
+      end
+
       def on_resolvable(resolved_future, index)
         if Future === resolved_future
-          Concurrent.executor(@Executor).post(resolved_future, @Args, @Task) do |future, args, task|
+          post_continuation(resolved_future, @Args, @Task) do |future, args, task|
             evaluate_to(*future.result, *args, task)
           end
         else
-          Concurrent.executor(@Executor).post(@Args, @Task) do |args, task|
+          post_continuation(@Args, @Task) do |args, task|
             evaluate_to(*args, task)
           end
         end

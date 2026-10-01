@@ -1,5 +1,6 @@
 require 'concurrent/executor/abstract_executor_service'
 require 'concurrent/atomic/event'
+require 'concurrent/context'
 
 module Concurrent
 
@@ -16,6 +17,10 @@ module Concurrent
 
     def post(*args, &task)
       raise ArgumentError.new('no block given') unless block_given?
+      # Capture the registered context variables on the submitting thread.
+      # The snapshot is restored on the executing thread even if the task
+      # raises or the executor rejects it and runs it on the calling thread.
+      task = Context.propagate(task)
       deferred_action = synchronize {
         if running?
           ns_execute(*args, &task)

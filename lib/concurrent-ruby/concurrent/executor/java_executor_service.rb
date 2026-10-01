@@ -1,6 +1,7 @@
 require 'concurrent/utility/engine'
 
 if Concurrent.on_jruby?
+  require 'concurrent/context'
   require 'concurrent/errors'
   require 'concurrent/executor/abstract_executor_service'
 
@@ -20,6 +21,7 @@ if Concurrent.on_jruby?
 
       def post(*args, &task)
         raise ArgumentError.new('no block given') unless block_given?
+        task = Context.propagate(task)
         return fallback_action(*args, &task).call unless running?
         @executor.submit Job.new(args, task)
         true

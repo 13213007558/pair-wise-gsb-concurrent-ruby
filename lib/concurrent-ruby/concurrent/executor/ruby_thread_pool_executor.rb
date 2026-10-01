@@ -379,6 +379,10 @@ module Concurrent
       end
 
       def run_task(pool, task, args)
+        # The task is already wrapped with its captured context at #post time.
+        # Calling it directly (rather than via #post) avoids wrapping it once
+        # more, which would otherwise re-install the snapshot while restoring
+        # the worker thread's own values.
         task.call(*args)
         pool.worker_task_completed
       rescue => ex

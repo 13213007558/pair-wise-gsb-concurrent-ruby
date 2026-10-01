@@ -1,5 +1,6 @@
 require 'thread'
 require 'concurrent/constants'
+require 'concurrent/context'
 require 'concurrent/errors'
 require 'concurrent/ivar'
 require 'concurrent/executor/safe_task_executor'
@@ -52,7 +53,14 @@ module Concurrent
     #   future.state #=> :pending
     def execute
       if compare_and_set_state(:pending, :unscheduled)
-        @executor.post{ safe_execute(@task, @args) }
+        task = @task
+        # When a context is explicitly requested it is captured here, at the
+        # moment the future is submitted; otherwise the executor captures the
+        # context of the thread running #execute.
+        if @context
+          task = Context.bind(@context, &task)
+        end
+        @executor.post{ safe_execute(task, @args) }
         self
       end
     end
@@ -136,6 +144,10 @@ module Concurrent
       @task = opts[:__task_from_block__]
       @executor = Options.executor_from_options(opts) || Concurrent.global_io_executor
       @args = get_arguments_from(opts)
+      @context =
+        if opts.key?(:context)
+          Context.snapshot_option(opts[:context]) || Context.empty
+        end
     end
   end
 end
