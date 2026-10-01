@@ -1,5 +1,14 @@
 ## Current
 
+concurrent-ruby:
+
+* Add `Concurrent::KeySerializedExecutor`: an executor backed by one bounded
+  fixed-size thread pool which serializes tasks sharing the same key while
+  running tasks of different keys in parallel. It bounds the total number of
+  queued tasks (`max_tasks`), supports the `:abort`, `:discard` and
+  `:caller_runs` fallback policies with explicit return values, drains accepted
+  tasks on orderly shutdown, and reclaims idle keys.
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:
