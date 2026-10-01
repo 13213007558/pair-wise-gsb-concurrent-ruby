@@ -176,6 +176,8 @@ Thread-safe variables:
     A lock that supports multiple readers but only one writer.
 *   [ReentrantReadWriteLock](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/ReentrantReadWriteLock.html)
     A read/write lock with reentrant and upgrade features.
+*   [StampedLock](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/StampedLock.html)
+    A stamped read/write lock with capability-based optimistic reading and stamp conversion.
 *   [Semaphore](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/Semaphore.html)
     A counting-based locking mechanism that uses permits.
 *   [AtomicMarkableReference](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/AtomicMarkableReference.html)
