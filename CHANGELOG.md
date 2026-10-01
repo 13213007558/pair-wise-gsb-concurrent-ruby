@@ -1,5 +1,11 @@
 ## Current
 
+concurrent-ruby:
+
+* Add `Concurrent::TaskScope` — structured concurrency for a block of related tasks:
+  spawn sub-tasks, wait for their results, cooperative cancellation of siblings
+  when one task fails, and collection of all failure reasons on exit
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:
