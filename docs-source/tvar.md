@@ -21,6 +21,45 @@ the transaction. Creating a thread counts as a side-effect.
 
 We implement nested transactions by flattening.
 
+When a transaction finds that a condition it depends on does not hold yet,
+it does not have to busy-wait. `Concurrent::retry_transaction` abandons the
+current attempt, releases all locks and puts the transaction to sleep until
+another committed transaction modifies one of the `TVar` objects it has
+read so far - then the whole `atomically` block runs again. Writes to
+`TVar` objects the transaction has not read do not wake it up.
+
+`Concurrent::or_else` composes two alternative transactional blocks: if the
+first block retries, its writes are rolled back (its reads are kept) and
+the second block runs instead. If both blocks retry, the transaction sleeps
+on the union of the read sets of both branches.
+
+```ruby
+queue = Concurrent::TVar.new([])
+full = Concurrent::TVar.new(false)
+
+# Block until the queue has an element - without busy-waiting.
+Concurrent::atomically do
+  items = queue.value
+  Concurrent::retry_transaction if items.empty?
+  queue.value = items[1..]
+  items.first
+end
+
+# Take from either queue, whichever has an element first.
+Concurrent::atomically do
+  Concurrent::or_else(
+    -> { take_one.call(q1) },
+    -> { take_one.call(q2) }
+  )
+end
+```
+
+`Concurrent::atomically` accepts an optional `timeout:` (in seconds) that
+bounds the total time spent sleeping inside `retry_transaction`; when the
+deadline passes, `Concurrent::TimeoutError` is raised. A transaction that
+retries without having read anything can never be woken, so it raises
+`Concurrent::Transaction::InvalidRetryError` unless a timeout was given.
+
 We only support strong isolation if you use the API correctly. In order words,
 we do not support strong isolation.
 

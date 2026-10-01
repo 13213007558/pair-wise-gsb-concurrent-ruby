@@ -1,5 +1,9 @@
 ## Current
 
+concurrent-ruby:
+
+* Add `Concurrent::retry_transaction` and `Concurrent::or_else` to the `TVar` software transactional memory, plus an optional `timeout:` for `Concurrent::atomically`. Transactions can now sleep until a `TVar` in their read set changes instead of busy-waiting.
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:
