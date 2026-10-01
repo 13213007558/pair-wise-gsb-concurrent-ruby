@@ -1,5 +1,10 @@
 ## Current
 
+concurrent-ruby-edge:
+
+* Add `Concurrent::Edge::ParallelMap`, an ordered parallel map over a lazy,
+  one-shot Enumerable with a bounded window of in-flight tasks.
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:
