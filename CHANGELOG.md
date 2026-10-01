@@ -1,5 +1,11 @@
 ## Current
 
+concurrent-ruby:
+
+* Add `Concurrent::Phaser`, a reusable synchronization barrier with a dynamically
+  changing number of parties (`register`, `arrive`, `arrive_and_await_advance`,
+  `arrive_and_deregister`, `force_termination`)
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:
