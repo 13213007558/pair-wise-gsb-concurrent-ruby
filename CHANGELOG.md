@@ -1,5 +1,11 @@
 ## Current
 
+concurrent-ruby:
+
+* (`#1115`) Add `Concurrent::retry_transaction` and `Concurrent::or_else` to
+  the `TVar` software transactional memory, plus an optional timeout for
+  `Concurrent::atomically`
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:

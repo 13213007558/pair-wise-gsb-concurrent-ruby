@@ -28,6 +28,57 @@ Our implementation uses a very simple algorithm that locks each `TVar` when it
 is first read or written. If it cannot lock a `TVar` it aborts and retries.
 There is no contention manager so competing transactions may retry eternally.
 
+## Blocking with `retry_transaction` and choosing with `or_else`
+
+When a transaction finds that a condition it depends on does not hold yet -
+say a queue that is empty - it does not have to busy-wait. Calling
+`Concurrent::retry_transaction` rolls the transaction back, releases all of
+its locks, and puts the thread to sleep. The transaction is run again once any
+`TVar` it has read is modified by another transaction, so it is never woken up
+by writes it cannot observe. The waiter is registered while the transaction
+still holds its locks, so a write that lands between checking the condition
+and going to sleep cannot be lost.
+
+`Concurrent::or_else(first, second)` takes two lambdas. It runs `first`; if
+that branch retries, the writes it made are rolled back - its reads stay in
+the transaction's read set, so the transaction still waits on them - and
+`second` is run. Only if both branches retry does the transaction sleep, and
+it then wakes up when a `TVar` read by either branch changes. `or_else` may be
+nested, and may also be called outside `Concurrent::atomically`, in which case
+it is wrapped in a transaction of its own.
+
+```ruby
+left = Concurrent::TVar.new([])
+right = Concurrent::TVar.new([])
+
+# Take from the left queue, or if it is empty, from the right one, and if
+# both are empty, sleep until an item appears in either of them.
+Concurrent::atomically do
+  Concurrent::or_else(
+    -> {
+      items = left.value
+      Concurrent::retry_transaction if items.empty?
+      left.value = items[1..-1]
+      items.first
+    },
+    -> {
+      items = right.value
+      Concurrent::retry_transaction if items.empty?
+      right.value = items[1..-1]
+      items.first
+    }
+  )
+end
+```
+
+`Concurrent::atomically` accepts an optional timeout in seconds that bounds
+how long the whole call may spend sleeping in `retry_transaction`. When the
+time is up a `Concurrent::Transaction::RetryTimeoutError` is raised. Retrying
+a transaction that has not read any `TVar` has nothing to wait on: without a
+timeout it raises an `ArgumentError` rather than sleeping forever, and with a
+timeout it sleeps out the remaining time and then raises
+`Concurrent::Transaction::RetryTimeoutError`.
+
 ```ruby
 require 'concurrent'
 
