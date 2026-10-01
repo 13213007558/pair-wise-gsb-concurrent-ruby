@@ -1,5 +1,6 @@
 require 'thread'
 require 'concurrent/constants'
+require 'concurrent/context'
 require 'concurrent/errors'
 require 'concurrent/ivar'
 require 'concurrent/executor/safe_task_executor'
@@ -28,6 +29,9 @@ module Concurrent
     #
     # @option opts [object, Array] :args zero or more arguments to be passed the task
     #   block on execution
+    # @option opts [Boolean] :propagate_context (false) when true the values of
+    #   the explicitly registered {Concurrent::ContextVar}s are captured when
+    #   {#execute} is called and installed around the task on the executor
     #
     # @raise [ArgumentError] if no block is given
     def initialize(opts = {}, &block)
@@ -52,7 +56,12 @@ module Concurrent
     #   future.state #=> :pending
     def execute
       if compare_and_set_state(:pending, :unscheduled)
-        @executor.post{ safe_execute(@task, @args) }
+        if @propagate_context
+          snapshot = Concurrent::Context.capture
+          @executor.post { Concurrent::Context.with_snapshot(snapshot) { safe_execute(@task, @args) } }
+        else
+          @executor.post{ safe_execute(@task, @args) }
+        end
         self
       end
     end
@@ -66,6 +75,9 @@ module Concurrent
     #
     # @option opts [object, Array] :args zero or more arguments to be passed the task
     #   block on execution
+    # @option opts [Boolean] :propagate_context (false) when true the values of
+    #   the explicitly registered {Concurrent::ContextVar}s are captured when
+    #   {#execute} is called and installed around the task on the executor
     #
     # @raise [ArgumentError] if no block is given
     #
@@ -136,6 +148,7 @@ module Concurrent
       @task = opts[:__task_from_block__]
       @executor = Options.executor_from_options(opts) || Concurrent.global_io_executor
       @args = get_arguments_from(opts)
+      @propagate_context = opts.fetch(:propagate_context, false)
     end
   end
 end

@@ -1,5 +1,6 @@
 require 'thread'
 require 'concurrent/constants'
+require 'concurrent/context'
 require 'concurrent/errors'
 require 'concurrent/ivar'
 require 'concurrent/executor/safe_task_executor'
@@ -200,6 +201,11 @@ module Concurrent
     #   @option opts [Proc] :on_reject rejection handler
     #   @option opts [object, Array] :args zero or more arguments to be passed
     #    the task block on execution
+    #   @option opts [Boolean] :propagate_context (false) when true the values
+    #    of the explicitly registered {Concurrent::ContextVar}s captured when the
+    #    promise is executed (roots) or when the continuation is registered via
+    #    {#then} (children, which inherit this option from their parent) are
+    #    installed around the task on the executor
     #
     # @yield The block operation to be performed asynchronously.
     #
@@ -247,6 +253,9 @@ module Concurrent
       if root?
         if compare_and_set_state(:pending, :unscheduled)
           set_pending
+          # The root body is submitted here, so its context is captured at
+          # execute time unless one was already captured (e.g. via `set`).
+          @context_snapshot ||= Concurrent::Context.capture if @propagate_context
           realize(@promise_body)
         end
       else
@@ -313,10 +322,13 @@ module Concurrent
     #     in the new Promise
     def then(*args, &block)
       if args.last.is_a?(::Hash)
-        executor = args.pop[:executor]
+        opts = args.pop
+        executor = opts[:executor]
+        propagate_context = opts.fetch(:propagate_context, @propagate_context)
         rescuer = args.first
       else
         rescuer, executor = args
+        propagate_context = @propagate_context
       end
 
       executor ||= @executor
@@ -327,8 +339,13 @@ module Concurrent
         parent: self,
         executor: executor,
         on_fulfill: block,
-        on_reject: rescuer
+        on_reject: rescuer,
+        propagate_context: propagate_context
       )
+
+      # A continuation runs with the context of the thread which registered it,
+      # captured now rather than when the parent eventually resolves.
+      child.capture_current_context if propagate_context
 
       synchronize do
         child.state = :pending if @state == :pending
@@ -489,6 +506,8 @@ module Concurrent
       @on_reject = opts.fetch(:on_reject) { Proc.new { |reason| raise reason } }
 
       @promise_body = opts[:__promise_body_from_block__] || Proc.new { |result| result }
+      @propagate_context = opts.fetch(:propagate_context, false)
+      @context_snapshot = nil
       @state = :unscheduled
       @children = []
     end
@@ -559,10 +578,25 @@ module Concurrent
     end
 
     # @!visibility private
+    def capture_current_context
+      @context_snapshot = Concurrent::Context.capture
+    end
+
+    # @!visibility private
     def realize(task)
-      @executor.post do
-        success, value, reason = SafeTaskExecutor.new(task, rescue_exception: true).execute(*@args)
-        complete(success, value, reason)
+      if @propagate_context && @context_snapshot
+        snapshot = @context_snapshot
+        @executor.post do
+          Concurrent::Context.with_snapshot(snapshot) do
+            success, value, reason = SafeTaskExecutor.new(task, rescue_exception: true).execute(*@args)
+            complete(success, value, reason)
+          end
+        end
+      else
+        @executor.post do
+          success, value, reason = SafeTaskExecutor.new(task, rescue_exception: true).execute(*@args)
+          complete(success, value, reason)
+        end
       end
     end
 

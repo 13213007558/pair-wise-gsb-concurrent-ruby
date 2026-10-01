@@ -7,6 +7,8 @@ require 'concurrent/atomics'
 require 'concurrent/executors'
 require 'concurrent/synchronization'
 
+require 'concurrent/context'
+
 require 'concurrent/atomic/atomic_markable_reference'
 require 'concurrent/atomic/atomic_reference'
 require 'concurrent/agent'
