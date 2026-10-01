@@ -1,5 +1,13 @@
 ## Current
 
+concurrent-ruby:
+
+* Add `Concurrent::Promises.quorum_futures` (alias `quorum`) combinator which
+  fulfills once a threshold number of futures is fulfilled, returning
+  `[index, value]` pairs of the contributing results, and rejects as soon as
+  the threshold becomes unreachable, preserving the collected failure reasons
+  in `QuorumNotReachedError#reasons`.
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:

@@ -177,6 +177,170 @@ RSpec.describe 'Concurrent::Promises' do
     end
   end
 
+  describe '.quorum' do
+    it 'fulfills as soon as the threshold number of futures is fulfilled' do
+      a = resolvable_future
+      b = resolvable_future
+      c = resolvable_future
+
+      q = quorum_futures(2, a, b, c)
+
+      b.fulfill 2
+      expect(q).to be_pending
+
+      c.fulfill 3
+      expect(q).to be_fulfilled
+      expect(q.value!).to eq [[1, 2], [2, 3]]
+    end
+
+    it 'reports the original input position of each contributing value' do
+      a = resolvable_future
+      b = resolvable_future
+      c = resolvable_future
+
+      q = quorum_futures(2, a, b, c)
+
+      c.fulfill :c
+      a.fulfill :a
+      expect(q.value!).to eq [[0, :a], [2, :c]]
+    end
+
+    it 'tells duplicate inputs apart by their positions' do
+      f = fulfilled_future(:same)
+      expect(quorum_futures(2, f, f).value!).to eq [[0, :same], [1, :same]]
+    end
+
+    it 'fails as soon as the remaining futures cannot reach the threshold' do
+      a = resolvable_future
+      b = resolvable_future
+      c = resolvable_future
+
+      q = quorum_futures(2, a, b, c)
+
+      a.reject StandardError.new('a')
+      expect(q).to be_pending
+
+      c.reject StandardError.new('c')
+      expect(q).to be_rejected
+      expect(q.reason).to be_a Concurrent::Promises::QuorumNotReachedError
+      expect(q.reason.threshold).to eq 2
+      expect(q.reason.reasons.map(&:first)).to eq [0, 2]
+      expect(q.reason.reasons.map { |_, reason| reason.message }).to eq ['a', 'c']
+    end
+
+    it 'does not wait for irrelevant futures after reaching the threshold' do
+      a = resolvable_future
+      b = resolvable_future
+      c = resolvable_future
+
+      q = quorum_futures(2, a, b, c)
+      a.fulfill 1
+      b.fulfill 2
+      expect(q.wait(0.1)).to be true
+      expect(q.value!).to eq [[0, 1], [1, 2]]
+    end
+
+    it 'does not cancel or interfere with futures the caller may still use' do
+      later = resolvable_future
+      q     = quorum_futures(1, fulfilled_future(:first), later)
+
+      expect(q.value!).to eq [[0, :first]]
+      later.fulfill(:later)
+      expect(later.value!).to eq :later
+    end
+
+    it 'treats resolved Events as fulfilled nil values' do
+      q = quorum_futures(1, resolvable_event, fulfilled_future(:value))
+      expect(q.value!).to eq [[1, :value]]
+
+      event = resolvable_event
+      q     = quorum_futures(1, event)
+      event.resolve
+      expect(q.value!).to eq [[0, nil]]
+    end
+
+    it 'counts inputs already resolved before the callbacks are registered' do
+      q = quorum_futures(
+        2,
+        fulfilled_future(1),
+        rejected_future(StandardError.new('boom')),
+        fulfilled_future(3),
+      )
+      expect(q.value!).to eq [[0, 1], [2, 3]]
+    end
+
+    it 'fulfills immediately with an empty array when the threshold is zero' do
+      pending = resolvable_future
+      expect(quorum_futures(0, pending).value!).to eq []
+      expect(quorum_futures(0).value!).to eq []
+    end
+
+    it 'rejects immediately when there are fewer inputs than the threshold' do
+      q = quorum_futures(1)
+      expect(q).to be_rejected
+      expect(q.reason).to be_a Concurrent::Promises::QuorumNotReachedError
+      expect(q.reason.reasons).to eq []
+
+      q = quorum_futures(3, fulfilled_future(1), resolvable_future)
+      expect(q).to be_rejected
+      expect(q.reason.reasons).to eq []
+    end
+
+    it 'rejects a negative or non-integer threshold with ArgumentError' do
+      expect { quorum_futures(-1) }.to raise_error ArgumentError
+      expect { quorum_futures(1.5) }.to raise_error ArgumentError
+      expect { quorum_futures(nil) }.to raise_error ArgumentError
+    end
+
+    it 'publishes the aggregate result exactly once when the last success and failure complete together' do
+      publications = Queue.new
+      iterations   = 500
+
+      iterations.times do
+        a = resolvable_future
+        b = resolvable_future
+        c = resolvable_future
+
+        q = quorum_futures(2, a, b, c)
+        count = Concurrent::AtomicFixnum.new(0)
+        q.on_fulfillment! do |value|
+          count.increment
+          publications << [:fulfilled, value]
+        end
+        q.on_rejection! do |reason|
+          count.increment
+          publications << [:rejected, reason]
+        end
+
+        a.reject StandardError.new('a')
+        t1 = Thread.new { b.fulfill :b }
+        t2 = Thread.new { c.reject StandardError.new('c') }
+        t1.join
+        t2.join
+        q.wait
+        expect(count.value).to eq 1
+      end
+
+      expect(publications.size).to eq iterations
+      iterations.times.map { publications.pop }.each do |kind, payload|
+        case kind
+        when :fulfilled
+          expect(payload).to eq [[1, :b]]
+        when :rejected
+          expect(payload).to be_a Concurrent::Promises::QuorumNotReachedError
+          expect(payload.reasons.map(&:first)).to eq [0, 2]
+        end
+      end
+    end
+
+    it 'propagates touch to delayed inputs' do
+      a = delay { 1 }
+      b = delay { 2 }
+      q = quorum_futures(2, a, b)
+      expect(q.value!).to eq [[0, 1], [1, 2]]
+    end
+  end
+
   describe '.zip' do
     it 'waits for all results' do
       a = future { 1 }

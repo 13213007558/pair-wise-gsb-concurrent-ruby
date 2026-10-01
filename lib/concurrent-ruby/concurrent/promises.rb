@@ -41,6 +41,25 @@ module Concurrent
     # @!macro promise.param.callback
     #  @yieldreturn is forgotten.
 
+    # Raised when a {Promises.quorum_futures} can no longer collect enough
+    # fulfilled futures to reach its threshold.
+    class QuorumNotReachedError < StandardError
+      # @return [Array<Array(Integer, Object)>] `[index, reason]` pairs of every
+      #   rejected input observed before the quorum became unreachable, ordered
+      #   by the original input position.
+      attr_reader :reasons
+
+      # @return [Integer] the threshold which could not be reached.
+      attr_reader :threshold
+
+      # @!visibility private
+      def initialize(threshold, reasons)
+        @threshold = threshold
+        @reasons   = reasons
+        super "could not reach quorum of #{threshold} fulfilled futures, got #{reasons.size} rejection(s)"
+      end
+    end
+
     # Container of all {Future}, {Event} factory methods. They are never constructed directly with
     # new.
     module FactoryMethods
@@ -328,6 +347,46 @@ module Concurrent
       # @return [Event]
       def any_event_on(default_executor, *futures_and_or_events)
         AnyResolvedEventPromise.new_blocked_by(futures_and_or_events, default_executor).event
+      end
+
+      # @!macro promises.shortcut.on
+      # @return [Future]
+      def quorum_futures(threshold, *futures_and_or_events)
+        quorum_futures_on default_executor, threshold, *futures_and_or_events
+      end
+
+      alias_method :quorum, :quorum_futures
+
+      # Creates a new future which is fulfilled as soon as +threshold+ of the
+      # futures_and_or_events are fulfilled. It is rejected as soon as the
+      # remaining futures_and_or_events can no longer produce enough
+      # fulfillments to reach the +threshold+.
+      #
+      # When fulfilled its value is an array of `[index, value]` pairs of the
+      # fulfilled futures_and_or_events which contributed to reaching the
+      # threshold, ordered by their original position. +index+ is the position
+      # in futures_and_or_events (starting at 0), so duplicate inputs can be told
+      # apart. When rejected its reason is an {QuorumNotReachedError} whose
+      # +reasons+ is an array of `[index, reason]` pairs collected from every
+      # rejected input observed so far.
+      #
+      # It never cancels the other futures_and_or_events; they keep running and
+      # their resolution is simply ignored after this future is settled, so the
+      # caller can still use them.
+      #
+      # @!macro promises.event-conversion
+      #
+      # @!macro promises.param.default_executor
+      # @param [Integer] threshold minimum number of fulfillments required.
+      #   `0` (including the empty collection of futures_and_or_events) fulfills
+      #   immediately with an empty array. A negative threshold raises
+      #   {ArgumentError}. A +threshold+ larger than the number of inputs
+      #   rejects immediately.
+      # @param [AbstractEventFuture] futures_and_or_events
+      # @return [Future]
+      def quorum_futures_on(default_executor, threshold, *futures_and_or_events)
+        QuorumFuturesPromise.
+            new_blocked_by(futures_and_or_events, default_executor, threshold).future
       end
 
       # TODO consider adding first(count, *futures)
@@ -2098,6 +2157,78 @@ module Concurrent
       end
     end
 
+    class QuorumFuturesPromise < BlockedPromise
+
+      def self.new_blocked_by(blockers, default_executor, threshold)
+        delayed = blockers.reduce(nil) { |d, f| add_delayed d, f.promise.delayed_because }
+        promise = new(delayed, blockers.size, default_executor, threshold)
+        blockers.each_with_index { |f, i| f.add_callback_notify_blocked promise, i }
+        promise
+      end
+
+      private_class_method :new
+
+      # Replaces BlockedPromise#on_blocker_resolution entirely; @Countdown is
+      # still decremented here to keep the superclass accounting correct.
+      def on_blocker_resolution(future, index)
+        @Countdown.decrement
+        state = @Lock.synchronize { evaluate(future, index) }
+        state && resolve_with(state, false)
+      end
+
+      private
+
+      def initialize(delayed, blockers_count, default_executor, threshold)
+        raise ArgumentError, "threshold must be a non-negative Integer, #{threshold.inspect} given" unless
+            threshold.is_a?(::Integer) && threshold >= 0
+
+        super(delayed, blockers_count, Future.new(self, default_executor))
+        @Threshold = threshold
+        @Lock      = Mutex.new
+        @Successes = []
+        @Reasons   = []
+        @Remaining = blockers_count
+        @Settled   = false
+
+        settle_initial
+      end
+
+      # @return [InternalStates::State, nil] the state to settle with, or nil if
+      #   neither the threshold nor the point of no return was reached.
+      #   Must be called while holding @Lock.
+      def evaluate(future, index)
+        return nil if @Settled
+
+        @Remaining -= 1
+        if future.is_a?(Event) ? future.resolved? : future.fulfilled?
+          @Successes.push [index, (future.value if Future === future)]
+        else
+          @Reasons.push [index, future.reason]
+        end
+
+        if @Successes.size >= @Threshold
+          @Settled = true
+          FulfilledArray.new(@Successes.sort_by(&:first))
+        elsif @Successes.size + @Remaining < @Threshold
+          @Settled = true
+          Rejected.new(QuorumNotReachedError.new(@Threshold, @Reasons.sort_by(&:first)))
+        end
+      end
+
+      def settle_initial
+        state = @Lock.synchronize do
+          if @Threshold.zero?
+            @Settled = true
+            FulfilledArray.new(@Successes.sort_by(&:first))
+          elsif @Successes.size + @Remaining < @Threshold
+            @Settled = true
+            Rejected.new(QuorumNotReachedError.new(@Threshold, @Reasons.sort_by(&:first)))
+          end
+        end
+        resolve_with(state, false) if state
+      end
+    end
+
     class DelayPromise < InnerPromise
 
       def initialize(default_executor)
@@ -2176,6 +2307,7 @@ module Concurrent
                      :AnyResolvedFuturePromise,
                      :AnyFulfilledFuturePromise,
                      :AnyResolvedEventPromise,
+                     :QuorumFuturesPromise,
                      :DelayPromise,
                      :ScheduledPromise
 
