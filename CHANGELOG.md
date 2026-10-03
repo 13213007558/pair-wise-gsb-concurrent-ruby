@@ -1,5 +1,11 @@
 ## Current
 
+concurrent-ruby:
+
+*   Add `Concurrent::ForkJoinExecutor`, a bounded fork/join pool whose workers
+    help execute queued tasks while joining, with dependency-cycle detection
+    and definite outcomes for unfinished joins on shutdown
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:
