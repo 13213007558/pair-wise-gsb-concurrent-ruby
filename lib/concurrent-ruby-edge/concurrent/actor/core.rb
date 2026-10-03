@@ -1,4 +1,3 @@
-require 'set'
 require 'concurrent/actor/type_check'
 require 'concurrent/concern/logging'
 require 'concurrent/executors'
@@ -74,7 +73,7 @@ module Concurrent
       def add_child(child)
         guard!
         Type! child, Reference
-        @children.add child
+        @children.push child unless @children.include? child
         nil
       end
 
@@ -167,7 +166,7 @@ module Concurrent
       def ns_initialize(opts, &block)
         @mailbox              = ::Array.new
         @serialized_execution = SerializedExecution.new
-        @children             = Set.new
+        @children             = []
 
         @context_class = Child! opts.fetch(:class), AbstractContext
         allocate_context

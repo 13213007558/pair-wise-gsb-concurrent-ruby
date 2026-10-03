@@ -25,5 +25,17 @@ module Concurrent
         super "#{envelope.message.inspect} from #{envelope.sender_path}"
       end
     end
+
+    class SupervisionError < Error
+      attr_reader :supervisor
+
+      def initialize(supervisor)
+        unless supervisor.is_a?(Reference)
+          raise ArgumentError, "expected a supervisor Reference, got #{supervisor.class}"
+        end
+        @supervisor = supervisor
+        super "supervisor #{supervisor.path} exceeded its restart limit"
+      end
+    end
   end
 end

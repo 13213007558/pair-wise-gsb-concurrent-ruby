@@ -25,6 +25,7 @@ module Concurrent
     require 'concurrent/actor/core'
     require 'concurrent/actor/behaviour'
     require 'concurrent/actor/context'
+    require 'concurrent/actor/supervisor'
 
     require 'concurrent/actor/default_dead_letter_handler'
     require 'concurrent/actor/root'

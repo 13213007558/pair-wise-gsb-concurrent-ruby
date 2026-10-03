@@ -5,7 +5,8 @@ module Concurrent
     module Behaviour
 
       # Handles supervised actors. Handle configures what to do with failed child: :terminate!, :resume!, :reset!,
-      # or :restart!. Strategy sets :one_for_one (restarts just failed actor) or :one_for_all (restarts all child actors).
+      # or :restart!. Strategy sets :one_for_one (restarts just failed actor), :one_for_all (restarts all child actors),
+      # or :rest_for_one (restarts the failed actor and all later children).
       # @note TODO missing example
       # @note this will change in next version to support supervision trees better
       class Supervising < Abstract
@@ -18,17 +19,21 @@ module Concurrent
                       when :resume!
                         Match! strategy, :one_for_one
                       when :reset!, :restart!
-                        Match! strategy, :one_for_one, :one_for_all
+                        Match! strategy, :one_for_one, :one_for_all, :rest_for_one
                       end
         end
 
         def on_envelope(envelope)
           case envelope.message
           when Exception, :paused
-            receivers = if @strategy == :one_for_all
+            receivers = case @strategy
+                        when :one_for_one
+                          [envelope.sender]
+                        when :one_for_all
                           children
                         else
-                          [envelope.sender]
+                          index = children.index(envelope.sender) || children.length
+                          children[index..-1]
                         end
             receivers.each { |ch| ch << @handle }
           else
