@@ -86,6 +86,21 @@ module Concurrent
         nil
       end
 
+      # @api private
+      # Options which can be used to spawn an equivalent actor replacing this one.
+      # Used by supervision strategies which replace children, e.g. :rest_for_one.
+      # The :block entry has to be passed as a block to {Core#initialize}.
+      # @return [Hash]
+      def respawn_options
+        { class:                @context_class,
+          name:                 @name,
+          args:                 @args,
+          block:                @block,
+          executor:             @executor,
+          reference_class:      @reference.class,
+          behaviour_definition: @behaviour_definition }
+      end
+
       # is executed by Reference scheduling processing of new messages
       # can be called from other alternative Reference implementations
       # @param [Envelope] envelope

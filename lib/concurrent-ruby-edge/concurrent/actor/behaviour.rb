@@ -93,11 +93,11 @@ module Concurrent
       #      [Behaviour::ErrorsOnUnknownMessage]]
       #
       # @see '' its source code
-      def self.restarting_behaviour_definition(handle = :reset!, strategy = :one_for_one)
+      def self.restarting_behaviour_definition(handle = :reset!, strategy = :one_for_one, **options)
         [*base(:pause!),
          *linking,
          *supervised,
-         *supervising(handle, strategy),
+         *supervising(handle, strategy, **options),
          *user_messages]
       end
 
@@ -120,8 +120,10 @@ module Concurrent
       end
 
       # @see '' its source code
-      def self.supervising(handle = :reset!, strategy = :one_for_one)
-        [[Behaviour::Supervising, handle, strategy]]
+      # @param [Hash] options additional options for {Behaviour::Supervising},
+      #   used by the :rest_for_one strategy, see {Behaviour::Supervising}
+      def self.supervising(handle = :reset!, strategy = :one_for_one, **options)
+        [[Behaviour::Supervising, handle, strategy, options]]
       end
 
       # @see '' its source code
