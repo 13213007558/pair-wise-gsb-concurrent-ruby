@@ -1,5 +1,13 @@
 ## Current
 
+concurrent-ruby:
+
+* Add `Concurrent::retry_transaction` and `Concurrent::or_else` to `TVar`
+  transactions: retry sleeps until a read `TVar` changes instead of
+  busy-looping, and `or_else` composes two alternatives, rolling back the
+  first one's writes when it retries and waiting on the union of both read
+  sets when both retry.
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:

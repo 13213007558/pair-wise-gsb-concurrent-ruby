@@ -28,6 +28,46 @@ Our implementation uses a very simple algorithm that locks each `TVar` when it
 is first read or written. If it cannot lock a `TVar` it aborts and retries.
 There is no contention manager so competing transactions may retry eternally.
 
+## Waiting for conditions with retry and or_else
+
+Aborting and re-running a transaction is a busy loop. When a transaction
+cannot proceed until some `TVar` changes - for example an account balance
+becoming high enough - use `Concurrent::retry_transaction` instead. The
+transaction goes to sleep, without consuming CPU, until one of the `TVar`s
+it has read so far is changed by another committed transaction, and then the
+whole transaction is re-run from the start:
+
+```ruby
+Concurrent::atomically do
+  Concurrent::retry_transaction if account.value < amount
+  account.value -= amount
+end
+```
+
+Only `TVar`s the transaction actually *read* can wake it, so reads matter.
+Retrying with an empty read set raises `Concurrent::Transaction::RetryError`,
+as such a transaction could never be woken. Any writes made before retrying
+are discarded.
+
+`Concurrent::or_else` composes two alternative computations. If the first
+alternative retries, its writes are rolled back and the second alternative
+runs. If both alternatives retry, the transaction sleeps until any `TVar`
+read by *either* alternative changes:
+
+```ruby
+Concurrent::atomically do
+  Concurrent::or_else(
+    -> { Concurrent::retry_transaction if queue_a.value.empty?; queue_a.value.shift },
+    -> { Concurrent::retry_transaction if queue_b.value.empty?; queue_b.value.shift }
+  )
+end
+```
+
+Any exception other than `Concurrent::Transaction::RetryError` raised by
+either alternative - including `Concurrent::abort_transaction` and
+`Concurrent::leave_transaction` - is not caught by `or_else` and applies
+to the whole transaction as usual.
+
 ```ruby
 require 'concurrent'
 
