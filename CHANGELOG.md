@@ -1,5 +1,12 @@
 ## Current
 
+concurrent-ruby:
+
+* Add `Concurrent::retry_transaction` and `Concurrent::or_else` to the `TVar`
+  software transactional memory. A transaction can now sleep until a `TVar` it
+  read is changed instead of busy-spinning, and `or_else` tries its right
+  branch when the left branch retries.
+
 ## Release v1.3.8 (19 July 2026)
 
 concurrent-ruby:

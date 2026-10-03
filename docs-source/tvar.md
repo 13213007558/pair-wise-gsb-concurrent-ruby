@@ -21,6 +21,51 @@ the transaction. Creating a thread counts as a side-effect.
 
 We implement nested transactions by flattening.
 
+## Blocking with retry and or_else
+
+Sometimes a transaction cannot make progress because of the values it has
+read - an account balance is too low, a queue is empty. Aborting and
+re-running it in a tight loop would waste CPU, so instead it can call
+`Concurrent::retry_transaction`. The transaction releases its locks,
+registers itself as a waiter on every `TVar` it has read, and sleeps until
+another transaction commits a change to one of them. It is then woken and
+the whole block is re-run from the start. Waiters are registered while the
+transaction still holds its locks, so a change that happens just as the
+transaction is going to sleep is never missed.
+
+```ruby
+Concurrent::atomically do
+  Concurrent::retry_transaction if account.value < amount
+  account.value -= amount
+end
+```
+
+A transaction that has read no `TVar` can never be woken, so calling
+`retry_transaction` with an empty read set raises
+`Concurrent::Transaction::RetryError` out of `atomically` instead of
+sleeping forever. Exceptions other than a retry abort the transaction and
+propagate as usual.
+
+`Concurrent::or_else` takes two branches - two lambdas, or a lambda and a
+block. It runs the left branch and, if that retries, discards the left
+branch's writes and runs the right branch instead. The `TVar`s read by the
+left branch stay in the transaction's read set, so if the right branch also
+retries the transaction sleeps until any `TVar` read by either branch
+changes.
+
+```ruby
+Concurrent::atomically do
+  Concurrent::or_else(
+    -> { Concurrent::retry_transaction if inbox.value.empty? },
+    -> { :nothing_waiting }
+  )
+end
+```
+
+Only retries are caught by `or_else` - `Concurrent::abort_transaction` and
+other exceptions raised by either branch abort the whole transaction as
+usual.
+
 We only support strong isolation if you use the API correctly. In order words,
 we do not support strong isolation.
 
