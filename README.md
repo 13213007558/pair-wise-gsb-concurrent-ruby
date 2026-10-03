@@ -172,6 +172,8 @@ Thread-safe variables:
     A synchronization aid that allows a set of threads to all wait for each other to reach a common barrier point.
 *   [Event](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/Event.html) Old school
     kernel-style event.
+*   [Phaser](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/Phaser.html)
+    A reusable barrier with a dynamically changing number of parties and support for tiering.
 *   [ReadWriteLock](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/ReadWriteLock.html)
     A lock that supports multiple readers but only one writer.
 *   [ReentrantReadWriteLock](http://ruby-concurrency.github.io/concurrent-ruby/master/Concurrent/ReentrantReadWriteLock.html)
